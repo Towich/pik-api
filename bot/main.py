@@ -10,6 +10,8 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
 )
+# Добавим ParseMode для HTML-разметки
+from telegram.constants import ParseMode
 
 from bot.config import get_settings
 from bot.repository import FlatRepository
@@ -40,11 +42,19 @@ async def cmd_studios(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not flats:
         await update.message.reply_text("Нет данных. Попробуйте позже.")
         return
-    lines = [
-        f"#{idx + 1}: {flat.price / 1_000_000:.2f} млн · этаж {flat.floor} · {flat.url}"
-        for idx, flat in enumerate(flats)
-    ]
-    await update.message.reply_text("Самые дешёвые студии:\n" + "\n".join(lines))
+    lines: list[str] = []
+    for idx, flat in enumerate(flats):
+        line = (
+            f"#{idx + 1}: {flat.price / 1_000_000:.2f} млн · этаж {flat.floor} · {flat.url}"
+        )
+        # Статусы отличные от 'free' считаем забронированными и зачёркиваем строку
+        if flat.status != "free":
+            line = f"<s>{line}</s>"
+        lines.append(line)
+
+    await update.message.reply_text(
+        "Самые дешёвые студии:\n" + "\n".join(lines), parse_mode=ParseMode.HTML
+    )
 
 
 async def cmd_one(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -53,11 +63,18 @@ async def cmd_one(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not flats:
         await update.message.reply_text("Нет данных. Попробуйте позже.")
         return
-    lines = [
-        f"#{idx + 1}: {flat.price / 1_000_000:.2f} млн · этаж {flat.floor} · {flat.url}"
-        for idx, flat in enumerate(flats)
-    ]
-    await update.message.reply_text("Самые дешёвые 1-к.:\n" + "\n".join(lines))
+    lines: list[str] = []
+    for idx, flat in enumerate(flats):
+        line = (
+            f"#{idx + 1}: {flat.price / 1_000_000:.2f} млн · этаж {flat.floor} · {flat.url}"
+        )
+        if flat.status != "free":
+            line = f"<s>{line}</s>"
+        lines.append(line)
+
+    await update.message.reply_text(
+        "Самые дешёвые 1-к.:\n" + "\n".join(lines), parse_mode=ParseMode.HTML
+    )
 
 
 async def cmd_mockupdate(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -113,7 +130,7 @@ TELEGRAM_LIMIT = 4096
 async def _send_long_text(bot, chat_id: Union[str, int], text: str) -> None:
     """Отправить длинный текст несколькими сообщениями, если превышает лимит Telegram."""
     if len(text) <= TELEGRAM_LIMIT:
-        await bot.send_message(chat_id=chat_id, text=text)
+        await bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML)
         return
 
     chunk: list[str] = []
@@ -121,7 +138,7 @@ async def _send_long_text(bot, chat_id: Union[str, int], text: str) -> None:
     for line in text.split("\n"):
         # +1 учитывает символ новой строки при склейке
         if current_len + len(line) + 1 > TELEGRAM_LIMIT:
-            await bot.send_message(chat_id=chat_id, text="\n".join(chunk))
+            await bot.send_message(chat_id=chat_id, text="\n".join(chunk), parse_mode=ParseMode.HTML)
             chunk = [line]
             current_len = len(line) + 1
         else:
@@ -129,7 +146,7 @@ async def _send_long_text(bot, chat_id: Union[str, int], text: str) -> None:
             current_len += len(line) + 1
 
     if chunk:
-        await bot.send_message(chat_id=chat_id, text="\n".join(chunk))
+        await bot.send_message(chat_id=chat_id, text="\n".join(chunk), parse_mode=ParseMode.HTML)
 
 
 async def hourly_job(context: ContextTypes.DEFAULT_TYPE):
@@ -171,8 +188,8 @@ def main() -> None:
     app.job_queue.run_repeating(
         hourly_job,
         interval=settings.summary_interval_seconds,
-        # first=settings.summary_interval_seconds,
-        first=5,
+        first=settings.summary_interval_seconds,
+        # first=5,
         data={"monitor": monitor},
     )
 
