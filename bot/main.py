@@ -105,6 +105,7 @@ async def cmd_mockupdate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for item in raw_data:
         if not isinstance(item, dict):
             continue
+        # Используем ту же маппинг-логику, что и в PIKApiClient
         flats.append(
             Flat(
                 id=item.get("id"),
@@ -114,12 +115,46 @@ async def cmd_mockupdate(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 url=item.get("url", ""),
                 area=item.get("area"),
                 floor=item.get("floor"),
+                # дополнительные поля
+                location=item.get("location"),
+                type_id=item.get("type_id"),
+                guid=item.get("guid"),
+                bulk_id=item.get("bulk_id"),
+                section_id=item.get("section_id"),
+                sale_scheme_id=item.get("saleSchemeId"),
+                ceiling_height=item.get("ceilingHeight"),
+                is_pre_sale=item.get("isPreSale"),
+                rooms_fact=item.get("rooms_fact"),
+                number=item.get("number"),
+                number_bti=item.get("number_bti"),
+                number_stage=item.get("number_stage"),
+                min_month_fee=item.get("minMonthFee"),
+                discount=item.get("discount"),
+                has_advertising_price=item.get("has_advertising_price"),
+                has_new_price=item.get("hasNewPrice"),
+                area_bti=item.get("area_bti"),
+                area_project=item.get("area_project"),
+                callback=item.get("callback"),
+                kitchen_furniture=item.get("kitchenFurniture"),
+                booking_cost=item.get("bookingCost"),
+                compass_angle=item.get("compass_angle"),
+                booking_status=item.get("bookingStatus"),
+                pdf=item.get("pdf"),
+                is_resell=item.get("isResell"),
             )
         )
 
     monitor: MonitorService = context.application.bot_data["monitor"]
     summary = await monitor.update_from_list(flats)
     await _send_long_text(context.bot, update.effective_chat.id, summary)
+
+
+async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    repo: FlatRepository = context.application.bot_data["repo"]  # только чтобы TypeChecker не ругался
+    monitor: MonitorService = context.application.bot_data["monitor"]
+
+    stats = await monitor.stats_text(include_links=False)
+    await _send_long_text(context.bot, update.effective_chat.id, stats)
 
 
 # --------------------------- jobs --------------------------------------
@@ -183,6 +218,7 @@ def main() -> None:
     app.add_handler(CommandHandler("studios", cmd_studios))
     app.add_handler(CommandHandler("one", cmd_one))
     app.add_handler(CommandHandler("mock", cmd_mockupdate))
+    app.add_handler(CommandHandler("stats", cmd_stats))
 
     # Планировщик
     app.job_queue.run_repeating(

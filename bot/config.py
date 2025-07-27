@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     database_path: str = "pik_yauza.db"
 
-    summary_interval_seconds: int = 3600  # 1 час
+    summary_interval_seconds: int = 14400  # 4 часа
 
     class Config:
         env_file = ".env"

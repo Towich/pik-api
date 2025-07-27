@@ -30,6 +30,67 @@ class MonitorService:
 
     # -------------------------------------------------------------------
 
+    def _build_stats_lines(self, flats: List[Flat], *, include_links: bool = False) -> List[str]:
+        """Сформировать блок статистики и топ-3 цен."""
+
+        studio_free = sum(1 for f in flats if self._is_studio(f) and f.status == "free")
+        studio_reserved = sum(1 for f in flats if self._is_studio(f) and f.status != "free")
+
+        one_free = sum(1 for f in flats if self._is_one(f) and f.status == "free")
+        one_reserved = sum(1 for f in flats if self._is_one(f) and f.status != "free")
+
+        # Берём объекты, чтобы можно было использовать ссылки при необходимости
+        cheapest_studios = (
+            sorted(
+                (f for f in flats if self._is_studio(f) and f.status == "free"),
+                key=lambda x: x.price,
+            )[:3]
+        )
+        cheapest_ones = (
+            sorted(
+                (f for f in flats if self._is_one(f) and f.status == "free"),
+                key=lambda x: x.price,
+            )[:3]
+        )
+
+        number_emojis = ["1️⃣", "2️⃣", "3️⃣"]
+
+        lines: List[str] = ["\n📊 <b>Статистика</b>"]
+        lines.extend(
+            [
+                f"• 🏠 Студии: <b>{studio_free}</b> свободно (бронь {studio_reserved})",
+                f"• 🚪 1-к.: <b>{one_free}</b> свободно (бронь {one_reserved})",
+            ]
+        )
+
+        if cheapest_studios:
+            lines.append("\n💸 <b>Топ-3 дешёвых студий (свободные)</b>")
+            for idx, flat in enumerate(cheapest_studios):
+                price_part = (
+                    f"<a href=\"{flat.url}\">{self._price_fmt(flat.price)}</a>"
+                    if include_links and flat.url
+                    else self._price_fmt(flat.price)
+                )
+                lines.append(f"{number_emojis[idx]} {price_part}")
+
+        if cheapest_ones:
+            lines.append("\n💸 <b>Топ-3 дешёвых 1-к. (свободные)</b>")
+            for idx, flat in enumerate(cheapest_ones):
+                price_part = (
+                    f"<a href=\"{flat.url}\">{self._price_fmt(flat.price)}</a>"
+                    if include_links and flat.url
+                    else self._price_fmt(flat.price)
+                )
+                lines.append(f"{number_emojis[idx]} {price_part}")
+
+        return lines
+
+    async def stats_text(self, *, include_links: bool = False) -> str:
+        """Публичный метод: вернуть текст статистики по данным в БД."""
+
+        flats = await self._repo.get_all_flats()
+        return "\n".join(self._build_stats_lines(flats, include_links=include_links))
+
     async def _process_flats(self, new_flats: List[Flat]) -> str:
         """Сравнить `new_flats` с состоянием БД и вернуть отчёт."""
 
@@ -58,7 +119,39 @@ class MonitorService:
 
         # --- изменения параметров ----
         common_ids = new_map.keys() & old_map.keys()
-        fields_to_check: Tuple[str, ...] = ("price", "status", "area", "floor")
+        # Проверяем некоторые поля модели Flat
+        fields_to_check: Tuple[str, ...] = (
+            "price",
+            "status",
+            "area",
+            "floor",
+            "rooms",
+            "url",
+            "location",
+            "type_id",
+            "guid",
+            "bulk_id",
+            "section_id",
+            "sale_scheme_id",
+            "ceiling_height",
+            "is_pre_sale",
+            "rooms_fact",
+            "number",
+            "number_bti",
+            "number_stage",
+            "min_month_fee",
+            "discount",
+            "has_advertising_price",
+            "has_new_price",
+            "area_bti",
+            "area_project",
+            "callback",
+            "kitchen_furniture",
+            "booking_cost",
+            "compass_angle",
+            "booking_status",
+            "is_resell",
+        )
         for fid in sorted(common_ids):
             old = old_map[fid]
             new = new_map[fid]
@@ -79,29 +172,17 @@ class MonitorService:
         # --- Обновляем БД свежими данными
         await self._repo.upsert_many(new_flats)
 
-        # --- Статистика для итоговой части
-        studio_total = sum(1 for f in new_flats if self._is_studio(f))
-        one_total = sum(1 for f in new_flats if self._is_one(f))
-        cheapest_prices = sorted(f.price for f in new_flats)[:3]
+        # Если изменений нет – краткое сообщение
+        if not diff_lines:
+            return "📝 Изменений нет"
 
-        summary_lines: List[str] = ["⚡️ Обновление ЖК «Яуза Парк»:"]
-        if diff_lines:
-            summary_lines.append("Изменения с последней проверки:")
-            summary_lines.extend(diff_lines)
-        else:
-            summary_lines.append("Первая сводка.")
+        # Иначе формируем подробный отчёт с ссылками
+        summary_lines: List[str] = ["⚡️ <b>ЖК «Яуза Парк»</b>"]
+        summary_lines.append("\n📝 <b>Изменения с последней проверки:</b>")
+        summary_lines.extend(diff_lines)
 
-        summary_lines.extend(
-            [
-                f"Всего студий: {studio_total}",
-                f"Всего 1-к.: {one_total}",
-                "Три самых дешёвых квартиры:",
-                *[
-                    f"  #{idx + 1}: {self._price_fmt(price)}"
-                    for idx, price in enumerate(cheapest_prices)
-                ],
-            ]
-        )
+        # добавляем статистику и топ с ссылками
+        summary_lines.extend(self._build_stats_lines(new_flats, include_links=True))
 
         return "\n".join(summary_lines)
 
