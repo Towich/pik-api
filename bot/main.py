@@ -4,11 +4,13 @@ from typing import Callable, Union
 import json
 
 from loguru import logger
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup, BotCommand
 from telegram.ext import (
     Application,
     CommandHandler,
     ContextTypes,
+    MessageHandler,
+    filters,
 )
 # Добавим ParseMode для HTML-разметки
 from telegram.constants import ParseMode
@@ -28,11 +30,15 @@ aSYNC_DEF = Callable[[Update, ContextTypes.DEFAULT_TYPE], None]
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        ["Студии 🏠", "1-к. 🚪"],
+        ["Статистика 📊"],
+        ["Mock 🛠"],  # dev-кнопка
+    ]
     await update.message.reply_text(
-        "Привет! Я слежу за ценами в ЖК «Яуза Парк».\n"
-        "Команды:\n"
-        "/studios — 10 самых дешёвых студий\n"
-        "/one — 10 самых дешёвых 1-к. квартир"
+        "Привет! Я слежу за ценами в ЖК «Яуза Парк». Выберите команду:",
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
+        parse_mode=ParseMode.HTML,
     )
 
 
@@ -153,7 +159,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     repo: FlatRepository = context.application.bot_data["repo"]  # только чтобы TypeChecker не ругался
     monitor: MonitorService = context.application.bot_data["monitor"]
 
-    stats = await monitor.stats_text(include_links=False)
+    stats = await monitor.stats_text(include_links=True)
     await _send_long_text(context.bot, update.effective_chat.id, stats)
 
 
@@ -209,6 +215,16 @@ def main() -> None:
 
     app = Application.builder().token(settings.telegram_token).build()
 
+    # задаём список доступных команд с описанием и эмодзи
+    commands = [
+        BotCommand("start", "ℹ️ помощь"),
+        BotCommand("studios", "🏠 10 дешёвых студий"),
+        BotCommand("one", "🚪 10 дешёвых 1-к."),
+        BotCommand("stats", "📊 статистика"),
+        BotCommand("mock", "🛠 mock-обновление (dev)"),
+    ]
+    loop.run_until_complete(app.bot.set_my_commands(commands))
+
     # сохраняем repo и monitor для хендлеров
     app.bot_data["repo"] = repo
     app.bot_data["monitor"] = monitor
@@ -220,12 +236,23 @@ def main() -> None:
     app.add_handler(CommandHandler("mock", cmd_mockupdate))
     app.add_handler(CommandHandler("stats", cmd_stats))
 
+    # Обработчики для кнопок-клавиатуры (тексты без слеша)
+    button_map = {
+        "Студии 🏠": cmd_studios,
+        "1-к. 🚪": cmd_one,
+        "Статистика 📊": cmd_stats,
+        "Mock 🛠": cmd_mockupdate,
+    }
+
+    for text, handler in button_map.items():
+        app.add_handler(MessageHandler(filters.Regex(f"^{text}$"), handler))
+
     # Планировщик
     app.job_queue.run_repeating(
         hourly_job,
         interval=settings.summary_interval_seconds,
-        first=settings.summary_interval_seconds,
-        # first=5,
+        # first=settings.summary_interval_seconds,
+        first=5,
         data={"monitor": monitor},
     )
 
