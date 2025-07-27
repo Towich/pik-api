@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from typing import Callable
+from typing import Callable, Union
+import json
 
 from loguru import logger
 from telegram import Update
@@ -13,6 +14,7 @@ from telegram.ext import (
 from bot.config import get_settings
 from bot.repository import FlatRepository
 from bot.services import MonitorService
+from bot.models import Flat
 
 logging.basicConfig(level=logging.INFO)
 
@@ -58,14 +60,83 @@ async def cmd_one(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Самые дешёвые 1-к.:\n" + "\n".join(lines))
 
 
+async def cmd_mockupdate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отправляет замоканное сообщение-обновление из JSON-файла."""
+    MOCK_FILE_PATH = "mock_data.json"
+    try:
+        with open(MOCK_FILE_PATH, "r", encoding="utf-8") as f:
+            raw_data = json.load(f)
+    except FileNotFoundError:
+        await update.message.reply_text(
+            f"Не удалось найти файл {MOCK_FILE_PATH}. Положите mock JSON рядом с ботом."
+        )
+        return
+    except json.JSONDecodeError:
+        await update.message.reply_text(
+            f"Файл {MOCK_FILE_PATH} содержит некорректный JSON."
+        )
+        return
+
+    # raw_data должен быть списком квартир как из API
+    if not isinstance(raw_data, list):
+        await update.message.reply_text(
+            "Ожидался JSON-массив с объектами квартир, как в ответе v1/flat."
+        )
+        return
+
+    flats: list[Flat] = []
+    for item in raw_data:
+        if not isinstance(item, dict):
+            continue
+        flats.append(
+            Flat(
+                id=item.get("id"),
+                rooms=str(item.get("rooms")),
+                price=item.get("price", 0),
+                status=item.get("status", "unknown"),
+                url=item.get("url", ""),
+                area=item.get("area"),
+                floor=item.get("floor"),
+            )
+        )
+
+    monitor: MonitorService = context.application.bot_data["monitor"]
+    summary = await monitor.update_from_list(flats)
+    await _send_long_text(context.bot, update.effective_chat.id, summary)
+
+
 # --------------------------- jobs --------------------------------------
+
+
+TELEGRAM_LIMIT = 4096
+
+async def _send_long_text(bot, chat_id: Union[str, int], text: str) -> None:
+    """Отправить длинный текст несколькими сообщениями, если превышает лимит Telegram."""
+    if len(text) <= TELEGRAM_LIMIT:
+        await bot.send_message(chat_id=chat_id, text=text)
+        return
+
+    chunk: list[str] = []
+    current_len = 0
+    for line in text.split("\n"):
+        # +1 учитывает символ новой строки при склейке
+        if current_len + len(line) + 1 > TELEGRAM_LIMIT:
+            await bot.send_message(chat_id=chat_id, text="\n".join(chunk))
+            chunk = [line]
+            current_len = len(line) + 1
+        else:
+            chunk.append(line)
+            current_len += len(line) + 1
+
+    if chunk:
+        await bot.send_message(chat_id=chat_id, text="\n".join(chunk))
 
 
 async def hourly_job(context: ContextTypes.DEFAULT_TYPE):
     monitor: MonitorService = context.job.data["monitor"]
     settings = get_settings()
-    summary = await monitor.refresh_and_diff()
-    await context.bot.send_message(chat_id=settings.telegram_chat_id, text=summary)
+    summary = await monitor.update_from_api()
+    await _send_long_text(context.bot, settings.telegram_chat_id, summary)
 
 
 # --------------------------- main --------------------------------------
@@ -86,18 +157,21 @@ def main() -> None:
 
     app = Application.builder().token(settings.telegram_token).build()
 
-    # сохраняем repo для хендлеров
+    # сохраняем repo и monitor для хендлеров
     app.bot_data["repo"] = repo
+    app.bot_data["monitor"] = monitor
 
     # Регистрация команд
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("studios", cmd_studios))
     app.add_handler(CommandHandler("one", cmd_one))
+    app.add_handler(CommandHandler("mock", cmd_mockupdate))
 
     # Планировщик
     app.job_queue.run_repeating(
         hourly_job,
         interval=settings.summary_interval_seconds,
+        # first=settings.summary_interval_seconds,
         first=5,
         data={"monitor": monitor},
     )

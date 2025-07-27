@@ -102,4 +102,25 @@ class FlatRepository:
         async with aiosqlite.connect(self._settings.database_path) as conn:
             cursor = await conn.execute(query, (*rooms, limit))
             rows = await cursor.fetchall()
-        return [row[0] for row in rows] 
+        return [row[0] for row in rows]
+
+    async def get_all_flats(self) -> List[Flat]:
+        """Вернуть все квартиры из таблицы."""
+
+        query = "SELECT id, rooms, price, status, url, area, floor FROM flats"
+        async with aiosqlite.connect(self._settings.database_path) as conn:
+            cursor = await conn.execute(query)
+            rows = await cursor.fetchall()
+
+        return [
+            Flat(
+                id=row[0],
+                rooms=row[1],
+                price=row[2],
+                status=row[3],
+                url=row[4],
+                area=row[5],
+                floor=row[6],
+            )
+            for row in rows
+        ] 
