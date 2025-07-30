@@ -2,6 +2,7 @@ import asyncio
 import logging
 from typing import Callable, Union
 import json
+import datetime
 
 from loguru import logger
 from telegram import Update, ReplyKeyboardMarkup, BotCommand
@@ -32,7 +33,7 @@ aSYNC_DEF = Callable[[Update, ContextTypes.DEFAULT_TYPE], None]
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         ["Студии 🏠", "1-к. 🚪"],
-        ["Статистика 📊"],
+        ["Статистика 📊", "Обновить сейчас 🔄"],
         ["Mock 🛠"],  # dev-кнопка
     ]
     await update.message.reply_text(
@@ -160,6 +161,11 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     monitor: MonitorService = context.application.bot_data["monitor"]
 
     stats = await monitor.stats_text(include_links=True)
+    
+    # Добавляем время следующего обновления
+    next_update_time = _get_next_update_time(context)
+    stats += f"\n\n⏰ Следующее автообновление: {next_update_time}"
+    
     await _send_long_text(context.bot, update.effective_chat.id, stats)
 
 
@@ -190,10 +196,59 @@ async def _send_long_text(bot, chat_id: Union[str, int], text: str) -> None:
         await bot.send_message(chat_id=chat_id, text="\n".join(chunk), parse_mode=ParseMode.HTML)
 
 
+def _get_next_update_time(context: ContextTypes.DEFAULT_TYPE) -> str:
+    """Получить время следующего автообновления."""
+    settings = get_settings()
+    current_jobs = context.job_queue.get_jobs_by_name("hourly_update")
+    
+    if current_jobs:
+        next_run = current_jobs[0].next_t
+        if next_run:
+            # Конвертируем в московское время (UTC+3)
+            moscow_time = next_run + datetime.timedelta(hours=3)
+            return moscow_time.strftime("%H:%M")
+    
+    return "неизвестно"
+
+
+async def cmd_update_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ручное обновление данных с отменой и пересозданием автообновления."""
+    monitor: MonitorService = context.application.bot_data["monitor"]
+    settings = get_settings()
+    
+    # Отменяем текущие задачи автообновления
+    current_jobs = context.job_queue.get_jobs_by_name("hourly_update")
+    for job in current_jobs:
+        job.schedule_removal()
+    
+    # Выполняем обновление
+    summary = await monitor.update_from_api()
+    
+    # Создаём новую задачу автообновления
+    context.job_queue.run_repeating(
+        hourly_job,
+        interval=settings.summary_interval_seconds,
+        first=settings.summary_interval_seconds,
+        data={"monitor": monitor},
+        name="hourly_update"
+    )
+    
+    # Добавляем время следующего обновления
+    next_update_time = _get_next_update_time(context)
+    summary += f"\n\n🔄 <b>Ручное обновление выполнено</b>\n⏰ Следующее автообновление: {next_update_time}"
+    
+    await _send_long_text(context.bot, update.effective_chat.id, summary)
+
+
 async def hourly_job(context: ContextTypes.DEFAULT_TYPE):
     monitor: MonitorService = context.job.data["monitor"]
     settings = get_settings()
     summary = await monitor.update_from_api()
+    
+    # Добавляем время следующего обновления
+    next_update_time = _get_next_update_time(context)
+    summary += f"\n\n⏰ Следующее автообновление: {next_update_time}"
+    
     await _send_long_text(context.bot, settings.telegram_chat_id, summary)
 
 
@@ -221,6 +276,7 @@ def main() -> None:
         BotCommand("studios", "🏠 10 дешёвых студий"),
         BotCommand("one", "🚪 10 дешёвых 1-к."),
         BotCommand("stats", "📊 статистика"),
+        BotCommand("update", "🔄 обновить сейчас"),
         BotCommand("mock", "🛠 mock-обновление (dev)"),
     ]
     loop.run_until_complete(app.bot.set_my_commands(commands))
@@ -235,12 +291,14 @@ def main() -> None:
     app.add_handler(CommandHandler("one", cmd_one))
     app.add_handler(CommandHandler("mock", cmd_mockupdate))
     app.add_handler(CommandHandler("stats", cmd_stats))
+    app.add_handler(CommandHandler("update", cmd_update_now))
 
     # Обработчики для кнопок-клавиатуры (тексты без слеша)
     button_map = {
         "Студии 🏠": cmd_studios,
         "1-к. 🚪": cmd_one,
         "Статистика 📊": cmd_stats,
+        "Обновить сейчас 🔄": cmd_update_now,
         "Mock 🛠": cmd_mockupdate,
     }
 
@@ -254,6 +312,7 @@ def main() -> None:
         # first=settings.summary_interval_seconds,
         first=5,
         data={"monitor": monitor},
+        name="hourly_update"
     )
 
     logger.info("Bot started. Press Ctrl+C to stop.")
