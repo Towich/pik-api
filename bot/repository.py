@@ -146,6 +146,19 @@ class FlatRepository:
                 )
             await conn.commit()
 
+    async def delete_by_ids(self, ids: List[int]) -> None:
+        """Удалить квартиры с заданными id из таблицы flats."""
+
+        if not ids:
+            return  # Нечего удалять
+
+        placeholders = ",".join("?" * len(ids))
+        query = f"DELETE FROM flats WHERE id IN ({placeholders})"
+
+        async with aiosqlite.connect(self._settings.database_path) as conn:
+            await conn.execute(query, ids)
+            await conn.commit()
+
     async def select_cheapest(self, rooms: List[str], limit: int = 10) -> List[Flat]:
         placeholders = ",".join("?" * len(rooms))
         query = (

@@ -117,6 +117,10 @@ class MonitorService:
                 f"➖ Удалена квартира #{f.id}: была {self._price_fmt(f.price)}, этаж {f.floor}, статус {f.status}"
             )
 
+        # --- физически удаляем отсутствующие квартиры из БД ----
+        if removed_ids:
+            await self._repo.delete_by_ids(list(removed_ids))
+
         # --- изменения параметров ----
         common_ids = new_map.keys() & old_map.keys()
         # Проверяем некоторые поля модели Flat
@@ -169,7 +173,7 @@ class MonitorService:
                         f"✏️ Квартира #{fid}: {field} {old_val_fmt} → {new_val_fmt}"
                     )
 
-        # --- Обновляем БД свежими данными
+        # --- Обновляем БД свежими данными (insert/update)
         await self._repo.upsert_many(new_flats)
 
         # Если изменений нет – краткое сообщение
