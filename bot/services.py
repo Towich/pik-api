@@ -151,9 +151,7 @@ class MonitorService:
             "area_project",
             "callback",
             "kitchen_furniture",
-            "booking_cost",
             "compass_angle",
-            "booking_status",
             "is_resell",
         )
         for fid in sorted(common_ids):
