@@ -108,7 +108,7 @@ class MonitorService:
         for fid in sorted(added_ids):
             f = new_map[fid]
             apartment_link = f"<a href=\"{f.url}\">#{f.id}</a>" if f.url else f"#{f.id}"
-            room_type = "студия" if self._is_studio(f) else "1-к." if self._is_one(f) else f"{f.rooms}-к."
+            room_type = "студия" if self._is_studio(f) else "1-к."
             diff_lines.append(
                 f"➕ Добавлена квартира {apartment_link} ({room_type}): {self._price_fmt(f.price)}, этаж {f.floor}, статус {f.status}"
             )
@@ -116,7 +116,7 @@ class MonitorService:
         for fid in sorted(removed_ids):
             f = old_map[fid]
             apartment_link = f"<a href=\"{f.url}\">#{f.id}</a>" if f.url else f"#{f.id}"
-            room_type = "студия" if self._is_studio(f) else "1-к." if self._is_one(f) else f"{f.rooms}-к."
+            room_type = "студия" if self._is_studio(f) else "1-к."
             diff_lines.append(
                 f"➖ Удалена квартира {apartment_link} ({room_type}): была {self._price_fmt(f.price)}, этаж {f.floor}, статус {f.status}"
             )
@@ -174,7 +174,7 @@ class MonitorService:
                     
                     # Создаём ссылку на квартиру
                     apartment_link = f"<a href=\"{new.url}\">#{fid}</a>" if new.url else f"#{fid}"
-                    room_type = "студия" if self._is_studio(new) else "1-к." if self._is_one(new) else f"{new.rooms}-к."
+                    room_type = "студия" if self._is_studio(new) else "1-к."
                     diff_lines.append(
                         f"✏️ Квартира {apartment_link} ({room_type}): {field} {old_val_fmt} → {new_val_fmt}"
                     )
@@ -202,10 +202,14 @@ class MonitorService:
         """Скачивает данные с API, формирует diff, обновляет БД."""
 
         async with PIKApiClient() as client:
-            new_flats = await client.fetch_flats()
+            all_flats = await client.fetch_flats()
+            # Фильтруем только студии и 1-комнатные
+            new_flats = [f for f in all_flats if self._is_studio(f) or self._is_one(f)]
         return await self._process_flats(new_flats)
 
     async def update_from_list(self, flats: List[Flat]) -> str:
         """То же самое, но принимает готовый список квартир."""
 
-        return await self._process_flats(flats) 
+        # Фильтруем только студии и 1-комнатные
+        filtered_flats = [f for f in flats if self._is_studio(f) or self._is_one(f)]
+        return await self._process_flats(filtered_flats) 
