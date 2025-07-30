@@ -107,14 +107,18 @@ class MonitorService:
 
         for fid in sorted(added_ids):
             f = new_map[fid]
+            apartment_link = f"<a href=\"{f.url}\">#{f.id}</a>" if f.url else f"#{f.id}"
+            room_type = "студия" if self._is_studio(f) else "1-к." if self._is_one(f) else f"{f.rooms}-к."
             diff_lines.append(
-                f"➕ Добавлена квартира #{f.id}: {self._price_fmt(f.price)}, этаж {f.floor}, статус {f.status}"
+                f"➕ Добавлена квартира {apartment_link} ({room_type}): {self._price_fmt(f.price)}, этаж {f.floor}, статус {f.status}"
             )
 
         for fid in sorted(removed_ids):
             f = old_map[fid]
+            apartment_link = f"<a href=\"{f.url}\">#{f.id}</a>" if f.url else f"#{f.id}"
+            room_type = "студия" if self._is_studio(f) else "1-к." if self._is_one(f) else f"{f.rooms}-к."
             diff_lines.append(
-                f"➖ Удалена квартира #{f.id}: была {self._price_fmt(f.price)}, этаж {f.floor}, статус {f.status}"
+                f"➖ Удалена квартира {apartment_link} ({room_type}): была {self._price_fmt(f.price)}, этаж {f.floor}, статус {f.status}"
             )
 
         # --- физически удаляем отсутствующие квартиры из БД ----
@@ -167,8 +171,12 @@ class MonitorService:
                     else:
                         old_val_fmt = old_val
                         new_val_fmt = new_val
+                    
+                    # Создаём ссылку на квартиру
+                    apartment_link = f"<a href=\"{new.url}\">#{fid}</a>" if new.url else f"#{fid}"
+                    room_type = "студия" if self._is_studio(new) else "1-к." if self._is_one(new) else f"{new.rooms}-к."
                     diff_lines.append(
-                        f"✏️ Квартира #{fid}: {field} {old_val_fmt} → {new_val_fmt}"
+                        f"✏️ Квартира {apartment_link} ({room_type}): {field} {old_val_fmt} → {new_val_fmt}"
                     )
 
         # --- Обновляем БД свежими данными (insert/update)
